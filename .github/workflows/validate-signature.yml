@@ -1,0 +1,52 @@
+name: Validate signature
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the PR adds exactly one valid signature
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+
+          expected="signatures/${AUTHOR}.md"
+          changed="$(git diff --name-status "$BASE_SHA" "$HEAD_SHA")"
+          echo "Files changed in this PR:"
+          echo "$changed"
+
+          count="$(printf '%s\n' "$changed" | grep -c . || true)"
+          [ "$count" -eq 1 ] || fail "This PR changes $count files. It should change exactly one: $expected. If you see other people's files, you committed on main — see 'Stuck?' in the README."
+
+          status="$(printf '%s' "$changed" | cut -f1)"
+          path="$(printf '%s' "$changed" | cut -f2)"
+          [ "$path" = "$expected" ] || fail "Expected your file at '$expected' but found '$path'. The filename must be your GitHub username exactly (case matters)."
+          case "$status" in A|M) ;; *) fail "Your signature file should be added, not deleted or renamed (git status: $status)." ;; esac
+
+          [ -s "$path" ] || fail "$path is empty. Copy signatures/_template.md and fill it in."
+          head -n1 "$path" | grep -Eq '^# .+' || fail "The first line of $path should be '# Your Name'."
+          grep -q '^# Your Name$' "$path" && fail "Replace '# Your Name' with your actual name."
+
+          grep -Fqix -- "- **GitHub:** @${AUTHOR}" "$path" \
+            || fail "$path needs the line '- **GitHub:** @${AUTHOR}' — it must match the account that opened this PR."
+
+          for field in "Batch" "I'm here to" "One thing I've built"; do
+            grep -Fq -- "- **${field}:**" "$path" || fail "$path is missing the '- **${field}:**' line from the template."
+          done
+          grep -Fq "one honest line about what you want" "$path" && fail "You left the template text in 'I'm here to'. Write your own line."
+
+          echo "✅ Signature looks good. Now ask a senior member for a review."
