@@ -1,6 +1,6 @@
-# Your Name
+# Sanjay Singh
 
-- **GitHub:** @your-github-username
+- **GitHub:** @apsian4352-coder
 - **Batch:** 2026
-- **I'm here to:** build something new
-- **One thing I've built:** a link, or "nothing yet" — both are fine
+- **I'm here to:** learn how to contribute to open source
+- **One thing I've built:** nothing yet
