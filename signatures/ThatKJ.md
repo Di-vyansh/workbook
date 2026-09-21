@@ -1,6 +1,6 @@
-# Your Name
+# Kirtan Joshi
 
 - **GitHub:** @ThatKJ
 - **Batch:** 2026
-- **I'm here to:** one honest line about what you want from open source
-- **One thing I've built:** a link, or "nothing yet" — both are fine
+- **I'm here to:** learn how to contribute to open source and grow through code reviews
+- **One thing I've built:** nothing yet
