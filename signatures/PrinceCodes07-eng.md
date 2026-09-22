@@ -1,6 +1,6 @@
-# Prince sharma
+# Prince Sharma
 
-- **GitHub:** @Princecodes07-eng 
+- **GitHub:** @Princecodes07-eng
 - **Batch:** 2026
-- **I'm here to:** be successfull devloper
-- **One thing I've built:** 'nothing yet'
+- **I'm here to:** be a successful developer
+- **One thing I've built:** nothing yet
