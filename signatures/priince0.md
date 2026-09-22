@@ -1,4 +1,4 @@
-# Your Name
+# Prince Rabadiya
 
 - **GitHub:** @priince0
 - **Batch:** 2026
