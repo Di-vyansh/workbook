@@ -1,6 +1,6 @@
-# Your Name
+# Divyansh Pal
 
-- **GitHub:** @your-github-username
+- **GitHub:** @Di-vyansh
 - **Batch:** 2026
-- **I'm here to:** one honest line about what you want from open source
-- **One thing I've built:** a link, or "nothing yet" — both are fine
+- **I'm here to:** became best developer
+- **One thing I've built:**http://127.0.0.1:8080/#/fpo-studio
