@@ -3,21 +3,29 @@ name: Validate signature
 # pull_request_target so every student's check runs the moment the PR opens,
 # with no maintainer clicking "Approve and run" for first-time contributors.
 #
-# That trigger runs with this repo's permissions, so the job never checks out,
-# installs or executes anything from the PR. It runs this file as it is on
-# main, fetches the PR's commit, and reads the one signature file as data.
-# The token is read-only and the job uses no secrets.
+# That trigger runs with this repo's permissions, so nothing here ever checks
+# out, installs or executes anything from the PR. The workflow is always the
+# copy on main; the PR's signature file is only ever read as data.
 on:
   pull_request_target:
     branches: [main]
     types: [opened, synchronize, reopened]
 
-permissions:
-  contents: read
+# One run per PR at a time; a newer push cancels the older check.
+concurrency:
+  group: signature-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
 
 jobs:
+  # The required status check. Read-only.
   validate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      problems: ${{ steps.check.outputs.problems }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,6 +34,7 @@ jobs:
           persist-credentials: false
 
       - name: Check the PR adds exactly one valid signature
+        id: check
         env:
           AUTHOR: ${{ github.event.pull_request.user.login }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -33,7 +42,17 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          fail() { echo "::error::$1"; exit 1; }
+          problems=()
+          # Hand every problem to the bot job, however this step ends.
+          emit() {
+            {
+              echo "problems<<SIGNATURE_PROBLEMS_EOF"
+              for p in "${problems[@]+"${problems[@]}"}"; do echo "$p"; done
+              echo "SIGNATURE_PROBLEMS_EOF"
+            } >> "$GITHUB_OUTPUT"
+          }
+          trap emit EXIT
+          fail() { problems+=("$1"); echo "::error::$1"; exit 1; }
           # Filenames come from the PR; strip anything that could be read as a workflow command.
           safe() { printf '%s' "$1" | tr -cd 'A-Za-z0-9._/@ -'; }
 
@@ -47,36 +66,125 @@ jobs:
           printf '%s\n' "$changed" | while IFS= read -r line; do echo "  $(safe "$line")"; done
 
           count="$(printf '%s\n' "$changed" | grep -c . || true)"
-          [ "$count" -eq 1 ] || fail "This PR changes $count files. It should change exactly one: $expected. If you see other people's files, you committed on main — see 'Stuck?' in the README."
+          if [ "$count" -ne 1 ]; then
+            others="$(printf '%s\n' "$changed" | cut -f2 | while IFS= read -r f; do [ "$f" = "$expected" ] || printf '`%s` ' "$(safe "$f")"; done)"
+            fail "This PR changes $count files. It should change exactly one: \`$expected\`. Remove these from the PR: ${others}(if you see other people's files, you committed on main — see 'Stuck?' in the README)."
+          fi
 
           status="$(printf '%s' "$changed" | cut -f1)"
           path="$(printf '%s' "$changed" | cut -f2)"
-          [ "$path" = "$expected" ] || fail "Expected your file at '$expected' but found '$(safe "$path")'. The filename must be your GitHub username exactly (case matters)."
+          [ "$path" = "$expected" ] || fail "Your file must be named exactly \`$expected\` — your GitHub username, capitals included. Yours is \`$(safe "$path")\`. Fix it with: \`git mv \"$(safe "$path")\" $expected\`"
           case "$status" in A|M) ;; *) fail "Your signature file should be added, not deleted or renamed (git status: $(safe "$status"))." ;; esac
 
           sig="$RUNNER_TEMP/signature.md"
           git show "${HEAD_SHA}:${path}" > "$sig"
+          [ -s "$sig" ] || fail "\`$path\` is empty. Copy \`signatures/_template.md\` and fill it in."
 
           # Content problems are collected, not fatal one at a time, so one run lists everything to fix.
-          problems=()
-          [ -s "$sig" ] || fail "$path is empty. Copy signatures/_template.md and fill it in."
           first="$(head -n1 "$sig")"
           if ! printf '%s' "$first" | grep -Eq '^# .+'; then
-            problems+=("The first line of $path should be your name after '# ', like '# Asha Rao'.")
+            problems+=("The first line must be your name after \`# \`, for example \`# Asha Rao\`.")
           elif printf '%s' "$first" | grep -Eiq '^#[[:space:]]*Your Name[[:space:]]*$'; then
-            problems+=("The first line still says '# Your Name'. Replace Your Name with your real name, keeping the '# '.")
+            problems+=("The first line still says \`# Your Name\`. Replace *Your Name* with your real name and keep the \`# \`, for example \`# Asha Rao\`.")
           fi
           grep -Eqi -- "^- \*\*GitHub:\*\* @${AUTHOR}[[:space:]]*$" "$sig" \
-            || problems+=("$path needs the line '- **GitHub:** @${AUTHOR}' (with the @), matching the account that opened this PR.")
+            || problems+=("The GitHub line must be exactly \`- **GitHub:** @${AUTHOR}\` — with the \`@\` and a space after the colon.")
           for field in "Batch" "I'm here to" "One thing I've built"; do
-            grep -Fq -- "- **${field}:**" "$sig" || problems+=("$path is missing the '- **${field}:**' line from the template.")
+            grep -Fq -- "- **${field}:**" "$sig" || problems+=("The \`- **${field}:**\` line from the template is missing.")
           done
-          grep -Fq "one honest line about what you want" "$sig" && problems+=("You left the template text in 'I'm here to'. Write your own line.")
+          grep -Fq "one honest line about what you want" "$sig" && problems+=("\`I'm here to\` still has the template text. Write your own line.")
 
           if [ "${#problems[@]}" -gt 0 ]; then
             for p in "${problems[@]}"; do echo "::error::$p"; done
-            echo "Fix all of the above in $path, commit, and push to this same PR."
             exit 1
           fi
+          echo "✅ Signature looks good."
 
-          echo "✅ Signature looks good. A governance reviewer has been requested automatically."
+  # Comments on the PR and, when the check passed, merges it.
+  # It never touches PR content except to read the one signature file through the API.
+  bot:
+    needs: validate
+    if: always() && needs.validate.result != 'cancelled' && needs.validate.result != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          RESULT: ${{ needs.validate.result }}
+          PROBLEMS: ${{ needs.validate.outputs.problems }}
+        with:
+          script: |
+            const MARKER = "<!-- workbook-bot -->";
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            const user = pr.user.login;
+            const path = `signatures/${user}.md`;
+            const passed = process.env.RESULT === "success";
+
+            async function upsert(body) {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: pr.number, per_page: 100,
+              });
+              const mine = comments.find((c) => c.user.type === "Bot" && c.body.includes(MARKER));
+              const text = `${MARKER}\n${body}`;
+              if (mine) await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body: text });
+              else await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body: text });
+            }
+
+            if (!passed) {
+              const problems = (process.env.PROBLEMS || "").split("\n").map((s) => s.trim()).filter(Boolean);
+              const list = problems.length
+                ? problems.map((p) => `- [ ] ${p}`).join("\n")
+                : "- [ ] The check failed before it could read your file. Open the **validate** check's log for details.";
+              await upsert(
+                `Hi @${user} 👋 thanks for signing the workbook! The check found ${problems.length > 1 ? "these problems" : "a problem"}:\n\n${list}\n\n` +
+                  "**How to fix it** (in your clone, on the same branch as this PR):\n\n" +
+                  "```bash\n# fix the file as described above, then:\ngit add -A\ngit commit -m \"Fix signature\"\ngit push\n```\n\n" +
+                  `Your file should look like:\n\n\`\`\`markdown\n# Your Real Name\n\n- **GitHub:** @${user}\n- **Batch:** 2026\n- **I'm here to:** your own line\n- **One thing I've built:** a link, or nothing yet\n\`\`\`\n\n` +
+                  "Push to **this same PR**. Don't open a new one. This comment updates itself each time the check re-runs.",
+              );
+              return;
+            }
+
+            // Passed: read the signature (as data) for a few friendly polish tips.
+            const { data: file } = await github.rest.repos.getContent({ owner, repo, path, ref: pr.head.sha });
+            const text = Buffer.from(file.content, "base64").toString("utf8");
+            const field = (name) => (text.match(new RegExp(`^- \\*\\*${name}:\\*\\*\\s*(.*)$`, "m")) || [])[1]?.trim() ?? "";
+            const goal = field("I'm here to");
+            const built = field("One thing I've built");
+            const name = (text.split("\n")[0] || "").replace(/^#\s*/, "").trim();
+            const tips = [];
+            if (/^["“].*["”]$/.test(built)) tips.push("You don't need quotes around *nothing yet*. Just write it as plain text.");
+            if (/^to\b/i.test(goal)) tips.push("Your *I'm here to* line starts with \"to\", so it reads \"I'm here to: to…\". Drop the extra \"to\".");
+            if (goal && goal.split(/\s+/).length < 4) tips.push("Your goal is quite short. Next time, say *what* you want to learn or build; it helps us match you with the right issues.");
+            if (/\bi\b/.test(goal)) tips.push("Capitalise \"I\" in your goal line.");
+            if (name && name === name.toLowerCase()) tips.push("Capitalise your name in the heading.");
+            if (/(^|\s)(?!https?:\/\/)[\w-]+\.(netlify\.app|vercel\.app|onrender\.com|github\.io|com|dev|app)\b/i.test(built)) tips.push("Start links with `https://` so they're clickable.");
+            if (/^(learning|to learn|learn)/i.test(built)) tips.push("*One thing I've built* is for something you've made (or *nothing yet*), not a goal.");
+            if (text.split("\n").some((line) => /\S {2,}/.test(line))) tips.push("There are some double spaces. Reading your own diff before opening a PR catches these.");
+
+            const feedback = tips.length
+              ? "**A few polish tips for next time** (no need to change this PR):\n" + tips.map((t) => `- ${t}`).join("\n")
+              : "Clean signature, nothing to polish. 👌";
+
+            let merged = false;
+            try {
+              await github.rest.pulls.merge({
+                owner, repo, pull_number: pr.number,
+                sha: pr.head.sha, // only the exact commit that passed the check
+                merge_method: "merge",
+                commit_title: `Sign the workbook: ${name || user} (#${pr.number})`,
+              });
+              merged = true;
+            } catch (e) {
+              core.warning(`Merge failed: ${e.message}`);
+            }
+
+            await upsert(
+              merged
+                ? `🎉 Welcome to DevForge, @${user}! The check passed and your signature is **merged**.\n\n${feedback}\n\n` +
+                    "**Next:** open [the workbook](https://www.devforge.club/workbook), submit **milestone 1** with this PR's link, and write your reflection within 48 hours. Then on to milestone 2!"
+                : `✅ @${user}, your signature passed the check. The automatic merge didn't go through, so a council member will merge it shortly.\n\n${feedback}`,
+            );
