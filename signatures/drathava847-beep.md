@@ -1,6 +1,6 @@
-# Your Name
+# Dipika Rathava
 
 - **GitHub:** @drathava847-beep
 - **Batch:** 2026
-- **I'm here to:** Learn how real open-source projects work and become a better contributor.
-- **One thing I've built:** Nothing yet
+- **I'm here to:** Learn how open source works and make meaningful contributions.
+- **One thing I've built:** nothing yet
