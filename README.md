@@ -54,7 +54,10 @@ Then open it and fill it in:
 - **One thing I've built:** a link, or "nothing yet" — both are fine
 ```
 
-Keep the `- **GitHub:** @username` line exactly as shown. The automated check reads it.
+The two things most people get wrong:
+
+- **`# Your Name` is a placeholder.** Replace *Your Name* with your real name and keep the `# `, for example `# Asha Rao`.
+- **Keep the `@`.** The line must read `- **GitHub:** @your-username`, exactly as shown. The automated check reads it.
 
 ### 5. Commit and push
 
