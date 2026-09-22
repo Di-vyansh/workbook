@@ -55,27 +55,25 @@ jobs:
           fail() { problems+=("$1"); echo "::error::$1"; exit 1; }
           # Filenames come from the PR; strip anything that could be read as a workflow command.
           safe() { printf '%s' "$1" | tr -cd 'A-Za-z0-9._/@ -'; }
-          normalize() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
           # The PR's commit, as data only. Nothing below checks it out or runs it.
           git fetch --no-tags -q origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/head"
           [ "$(git rev-parse refs/remotes/pr/head)" = "$HEAD_SHA" ] || fail "The PR changed while this check was starting. Push again or re-run the check."
 
           expected="signatures/${AUTHOR}.md"
-          expected_ci="$(normalize "$expected")"
           changed="$(git diff --name-status "$BASE_SHA" "$HEAD_SHA")"
           echo "Files changed in this PR:"
           printf '%s\n' "$changed" | while IFS= read -r line; do echo "  $(safe "$line")"; done
 
           count="$(printf '%s\n' "$changed" | grep -c . || true)"
           if [ "$count" -ne 1 ]; then
-            others="$(printf '%s\n' "$changed" | cut -f2 | while IFS= read -r f; do [ "$(normalize "$f")" = "$expected_ci" ] || printf '`%s` ' "$(safe "$f")"; done)"
+            others="$(printf '%s\n' "$changed" | cut -f2 | while IFS= read -r f; do [ "$f" = "$expected" ] || printf '`%s` ' "$(safe "$f")"; done)"
             fail "This PR changes $count files. It should change exactly one: \`$expected\`. Remove these from the PR: ${others}(if you see other people's files, you committed on main — see 'Stuck?' in the README)."
           fi
 
           status="$(printf '%s' "$changed" | cut -f1)"
           path="$(printf '%s' "$changed" | cut -f2)"
-          [ "$(normalize "$path")" = "$expected_ci" ] || fail "Your file must be named \`$expected\` — matching your GitHub username, regardless of case. Yours is \`$(safe "$path")\`. Fix it with: \`git mv \"$(safe "$path")\" $expected\`"
+          [ "$path" = "$expected" ] || fail "Your file must be named exactly \`$expected\` — your GitHub username, capitals included. Yours is \`$(safe "$path")\`. Fix it with: \`git mv \"$(safe "$path")\" $expected\`"
           case "$status" in A|M) ;; *) fail "Your signature file should be added, not deleted or renamed (git status: $(safe "$status"))." ;; esac
 
           sig="$RUNNER_TEMP/signature.md"

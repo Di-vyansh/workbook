@@ -37,7 +37,7 @@ git checkout -b sign/<your-github-username>
 
 ### 4. Create your signature file
 
-Copy the template and rename it to your GitHub username. GitHub usernames are case-insensitive, so match the login from the PR or your fork, and keep the filename consistent with the username you used in the PR.
+Copy the template and rename it to your **exact** GitHub username. Letter case matters.
 
 ```bash
 cp signatures/_template.md signatures/<your-github-username>.md
@@ -57,7 +57,7 @@ Then open it and fill it in:
 The two things most people get wrong:
 
 - **`# Your Name` is a placeholder.** Replace *Your Name* with your real name and keep the `# `, for example `# Asha Rao`.
-- **Keep the `@`.** The line must read `- **GitHub:** @your-username`, exactly as shown. GitHub usernames are case-insensitive, so the check accepts the same login with different letter case.
+- **Keep the `@`.** The line must read `- **GitHub:** @your-username`, exactly as shown. The automated check reads it.
 
 ### 5. Commit and push
 
@@ -120,7 +120,7 @@ Copy your PR URL (`https://github.com/NST-DEVFORGE/workbook/pull/<number>`), pas
 | Problem | Fix |
 | --- | --- |
 | PR shows lots of files | You committed on `main`. Sync your fork, `git checkout -b` a new branch from `main`, re-add your file, open a new PR, and close the old one. |
-| Check says the filename is wrong | The filename must match your GitHub username in `signatures/`, ending in `.md`. GitHub usernames are case-insensitive, but the check still expects the file and PR to use the same username spelling. |
+| Check says the filename is wrong | The filename must be your GitHub username exactly, in `signatures/`, ending in `.md`. |
 | Check says the GitHub line is wrong | It must read `- **GitHub:** @<your username>`, matching the account that opened the PR. |
 | `git push` asks for a password | GitHub no longer accepts passwords here. Use [GitHub CLI](https://cli.github.com/) (`gh auth login`) or a personal access token. |
 | Your fork is behind `main` | Click **Sync fork** on your fork's GitHub page, then `git pull` on `main` locally. |
