@@ -77,7 +77,7 @@ Fill in the PR template and open the PR.
 ### 7. Wait for the checks and a review
 
 - An automated check (**Validate signature**) runs on every PR. If it fails, open the check's log. It tells you exactly what to fix.
-- Post your PR link in the club group and ask a senior member to review it.
+- A governance council member is requested as reviewer automatically. You can also post your PR link in the club group.
 
 ### 8. Respond to the review on the *same* PR
 
