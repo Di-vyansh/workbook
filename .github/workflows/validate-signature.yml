@@ -1,8 +1,16 @@
 name: Validate signature
 
+# pull_request_target so every student's check runs the moment the PR opens,
+# with no maintainer clicking "Approve and run" for first-time contributors.
+#
+# That trigger runs with this repo's permissions, so the job never checks out,
+# installs or executes anything from the PR. It runs this file as it is on
+# main, fetches the PR's commit, and reads the one signature file as data.
+# The token is read-only and the job uses no secrets.
 on:
-  pull_request:
+  pull_request_target:
     branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -13,40 +21,62 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check the PR adds exactly one valid signature
         env:
           AUTHOR: ${{ github.event.pull_request.user.login }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           fail() { echo "::error::$1"; exit 1; }
+          # Filenames come from the PR; strip anything that could be read as a workflow command.
+          safe() { printf '%s' "$1" | tr -cd 'A-Za-z0-9._/@ -'; }
+
+          # The PR's commit, as data only. Nothing below checks it out or runs it.
+          git fetch --no-tags -q origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/head"
+          [ "$(git rev-parse refs/remotes/pr/head)" = "$HEAD_SHA" ] || fail "The PR changed while this check was starting. Push again or re-run the check."
 
           expected="signatures/${AUTHOR}.md"
           changed="$(git diff --name-status "$BASE_SHA" "$HEAD_SHA")"
           echo "Files changed in this PR:"
-          echo "$changed"
+          printf '%s\n' "$changed" | while IFS= read -r line; do echo "  $(safe "$line")"; done
 
           count="$(printf '%s\n' "$changed" | grep -c . || true)"
           [ "$count" -eq 1 ] || fail "This PR changes $count files. It should change exactly one: $expected. If you see other people's files, you committed on main — see 'Stuck?' in the README."
 
           status="$(printf '%s' "$changed" | cut -f1)"
           path="$(printf '%s' "$changed" | cut -f2)"
-          [ "$path" = "$expected" ] || fail "Expected your file at '$expected' but found '$path'. The filename must be your GitHub username exactly (case matters)."
-          case "$status" in A|M) ;; *) fail "Your signature file should be added, not deleted or renamed (git status: $status)." ;; esac
+          [ "$path" = "$expected" ] || fail "Expected your file at '$expected' but found '$(safe "$path")'. The filename must be your GitHub username exactly (case matters)."
+          case "$status" in A|M) ;; *) fail "Your signature file should be added, not deleted or renamed (git status: $(safe "$status"))." ;; esac
 
-          [ -s "$path" ] || fail "$path is empty. Copy signatures/_template.md and fill it in."
-          head -n1 "$path" | grep -Eq '^# .+' || fail "The first line of $path should be '# Your Name'."
-          grep -q '^# Your Name$' "$path" && fail "Replace '# Your Name' with your actual name."
+          sig="$RUNNER_TEMP/signature.md"
+          git show "${HEAD_SHA}:${path}" > "$sig"
 
-          grep -Fqix -- "- **GitHub:** @${AUTHOR}" "$path" \
-            || fail "$path needs the line '- **GitHub:** @${AUTHOR}' — it must match the account that opened this PR."
-
+          # Content problems are collected, not fatal one at a time, so one run lists everything to fix.
+          problems=()
+          [ -s "$sig" ] || fail "$path is empty. Copy signatures/_template.md and fill it in."
+          first="$(head -n1 "$sig")"
+          if ! printf '%s' "$first" | grep -Eq '^# .+'; then
+            problems+=("The first line of $path should be your name after '# ', like '# Asha Rao'.")
+          elif printf '%s' "$first" | grep -Eiq '^#[[:space:]]*Your Name[[:space:]]*$'; then
+            problems+=("The first line still says '# Your Name'. Replace Your Name with your real name, keeping the '# '.")
+          fi
+          grep -Eqi -- "^- \*\*GitHub:\*\* @${AUTHOR}[[:space:]]*$" "$sig" \
+            || problems+=("$path needs the line '- **GitHub:** @${AUTHOR}' (with the @), matching the account that opened this PR.")
           for field in "Batch" "I'm here to" "One thing I've built"; do
-            grep -Fq -- "- **${field}:**" "$path" || fail "$path is missing the '- **${field}:**' line from the template."
+            grep -Fq -- "- **${field}:**" "$sig" || problems+=("$path is missing the '- **${field}:**' line from the template.")
           done
-          grep -Fq "one honest line about what you want" "$path" && fail "You left the template text in 'I'm here to'. Write your own line."
+          grep -Fq "one honest line about what you want" "$sig" && problems+=("You left the template text in 'I'm here to'. Write your own line.")
 
-          echo "✅ Signature looks good. Now ask a senior member for a review."
+          if [ "${#problems[@]}" -gt 0 ]; then
+            for p in "${problems[@]}"; do echo "::error::$p"; done
+            echo "Fix all of the above in $path, commit, and push to this same PR."
+            exit 1
+          fi
+
+          echo "✅ Signature looks good. A governance reviewer has been requested automatically."
