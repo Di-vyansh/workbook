@@ -1,4 +1,4 @@
-Harshita Dhakad
+# Harshita Dhakad
 
 - **GitHub:** @Harshiita24
 - **Batch:** 2026
